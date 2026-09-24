@@ -2,3 +2,8 @@ __pycache__/
 *.pyc
 .venv/
 venv/
+
+# 執行時產生的檔案
+static/prediction.png
+data/*.csv
+!data/2330.TW.csv

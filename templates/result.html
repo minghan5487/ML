@@ -1,13 +1,22 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-Hant">
   <head>
     <meta charset="utf-8">
-    <title>預測結果</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ symbol }} 預測結果</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
   </head>
-  <body>
-    <h1>預測結果</h1>
-    <img src="{{ image_url }}" alt="Prediction Plot" style="width: 100%; max-width: 1200px;">
-    <br><br>
-    <a href="/">回到首頁</a>
+  <body class="bg-light">
+    <div class="container py-5">
+      <h1 class="h3 mb-4">{{ symbol }} 預測結果</h1>
+      <div class="row mb-4">
+        <div class="col-sm-3 mb-2"><div class="card card-body"><small class="text-muted">R² Score</small><strong class="h4 mb-0">{{ r2 }}</strong></div></div>
+        <div class="col-sm-3 mb-2"><div class="card card-body"><small class="text-muted">MSE</small><strong class="h4 mb-0">{{ mse }}</strong></div></div>
+        <div class="col-sm-3 mb-2"><div class="card card-body"><small class="text-muted">訓練筆數</small><strong class="h4 mb-0">{{ n_train }}</strong></div></div>
+        <div class="col-sm-3 mb-2"><div class="card card-body"><small class="text-muted">測試筆數</small><strong class="h4 mb-0">{{ n_test }}</strong></div></div>
+      </div>
+      <img src="{{ image_url }}" alt="{{ symbol }} 預測圖" class="img-fluid card p-2">
+      <a href="/" class="btn btn-secondary mt-4">重新預測</a>
+    </div>
   </body>
 </html>
