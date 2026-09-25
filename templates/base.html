@@ -12,8 +12,8 @@
         .card { border: 0; border-radius: 14px; box-shadow: 0 2px 12px rgba(20, 30, 50, .06); }
         .stat-label { font-size: .8rem; color: #868e96; }
         .stat-value { font-size: 1.6rem; font-weight: 700; }
-        .up, .table .up { color: #e03131; }
-        .down, .table .down { color: #2f9e44; }
+        .up { color: #e03131; }
+        .down { color: #2f9e44; }
     </style>
     {% block head %}{% endblock %}
 </head>
@@ -24,7 +24,6 @@
         <div class="navbar-nav">
             <a class="nav-link {{ 'active' if request.endpoint in ('home', 'predict') }}" href="{{ url_for('home') }}">明日預測價</a>
             <a class="nav-link {{ 'active' if request.endpoint == 'trend' }}" href="{{ url_for('trend') }}">20 日走勢</a>
-            <a class="nav-link {{ 'active' if request.endpoint == 'backtest' }}" href="{{ url_for('backtest') }}">策略回測</a>
         </div>
     </div>
 </nav>

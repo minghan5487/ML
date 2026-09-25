@@ -13,11 +13,9 @@ from sklearn.metrics import accuracy_score, roc_auc_score
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from trend.backtest import run_all as run_backtest
 from trend.config import HORIZON, MODEL_DIR, REPORT_DIR, STOCKS
 from trend.data import update_all
-from trend.features import EXPERT, FEATURES, TECHNICAL, build_dataset, expert_views
-from trend.traders import trader_views
+from trend.features import FEATURES, TECHNICAL, build_dataset, expert_views
 
 N_FOLDS = 5
 TEST_DAYS = 250
@@ -48,16 +46,14 @@ def walk_forward_splits(dates):
         yield unique[:train_end], unique[test_start:test_end]
 
 
-def evaluate(model, data, features, keep_predictions=False):
-    scores, predictions = [], []
+def evaluate(model, data, features):
+    scores = []
     for train_dates, test_dates in walk_forward_splits(data.index):
         train = data[data.index.isin(train_dates)]
         test = data[data.index.isin(test_dates)]
 
         model.fit(train[features], train['label'])
         prob = model.predict_proba(test[features])[:, 1]
-        if keep_predictions:
-            predictions.append(pd.DataFrame({'date': test.index, 'code': test['code'].values, 'prob_up': prob}))
 
         majority = int(train['label'].mean() >= 0.5)
         scores.append({
@@ -68,8 +64,7 @@ def evaluate(model, data, features, keep_predictions=False):
             'top_quintile_return': test.loc[prob >= np.quantile(prob, 0.8), 'future_return'].mean(),
             'avg_return': test['future_return'].mean(),
         })
-    scores = pd.DataFrame(scores)
-    return (scores, pd.concat(predictions, ignore_index=True)) if keep_predictions else scores
+    return pd.DataFrame(scores)
 
 
 def feature_importance(model, data):
@@ -91,28 +86,25 @@ def main(skip_download=False, force=False):
     if not skip_download:
         update_all(force=force)
 
-    data, latest, full = build_dataset()
+    data, latest = build_dataset()
     print(f'資料 {len(data):,} 筆，{data["code"].nunique()} 檔，{data.index.min().date()} ~ {data.index.max().date()}')
 
-    results, oos_by_model = {}, {}
+    results = {}
     for name, model in candidates().items():
-        results[name], oos_by_model[name] = evaluate(model, data, FEATURES, keep_predictions=True)
+        results[name] = evaluate(model, data, FEATURES)
         f = results[name]
         print(f'{name:18s} AUC {f.auc.mean():.4f}  準確率 {f.accuracy.mean():.2%}  基準 {f.baseline.mean():.2%}')
 
     best_name = max(results, key=lambda n: results[n].auc.mean())
-    best, oos = results[best_name], oos_by_model[best_name]
+    best = results[best_name]
     new_auc = best.auc.mean()
 
     technical_only = evaluate(candidates()[best_name], data, TECHNICAL)
-    without_traders = evaluate(candidates()[best_name], data, TECHNICAL + EXPERT)
-    print(f'{best_name} 僅技術指標 AUC {technical_only.auc.mean():.4f}，'
-          f'技術+專家 {without_traders.auc.mean():.4f}，全部 {new_auc:.4f}')
+    print(f'{best_name} 僅技術指標 AUC {technical_only.auc.mean():.4f}')
 
     meta = load_meta()
     has_model = (MODEL_DIR / 'model.joblib').exists()
-    same_features = meta is not None and meta.get('features') == FEATURES
-    replaced = not (has_model and same_features) or new_auc >= meta['auc'] - REPLACE_TOLERANCE
+    replaced = meta is None or not has_model or new_auc >= meta['auc'] - REPLACE_TOLERANCE
     run_time = datetime.now().strftime('%Y-%m-%d %H:%M')
 
     MODEL_DIR.mkdir(exist_ok=True)
@@ -127,11 +119,10 @@ def main(skip_download=False, force=False):
         meta = {
             'model': best_name, 'auc': round(new_auc, 4), 'accuracy': round(best.accuracy.mean(), 4),
             'baseline': round(best.baseline.mean(), 4), 'auc_technical_only': round(technical_only.auc.mean(), 4),
-            'auc_without_traders': round(without_traders.auc.mean(), 4),
             'top_quintile_return': round(best.top_quintile_return.mean(), 4),
             'avg_return': round(best.avg_return.mean(), 4),
             'trained_at': run_time, 'horizon': HORIZON, 'data_end': str(data.index.max().date()),
-            'samples': len(data), 'features': FEATURES,
+            'samples': len(data),
         }
         (MODEL_DIR / 'meta.json').write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding='utf-8')
         best.to_csv(REPORT_DIR / 'folds.csv', index=False)
@@ -151,12 +142,7 @@ def main(skip_download=False, force=False):
 
     predictions = predict_latest(latest)
     predictions.to_csv(REPORT_DIR / 'predictions.csv')
-
-    backtest = run_backtest(full, oos)
-    for name, m in backtest['full']['strategies'].items():
-        print(f'{name:14s} 年化 {m["cagr"]:+.1%}  最大回檔 {m["max_drawdown"]:.1%}  夏普 {m["sharpe"]:.2f}')
-
-    write_summary(meta, predictions, history, backtest)
+    write_summary(meta, predictions, history)
 
 
 def predict_latest(latest):
@@ -167,26 +153,15 @@ def predict_latest(latest):
 
     views = []
     for _, row in latest.iterrows():
-        opinions = {**expert_views(row), **trader_views(row)}
-        views.append({f'{who}|{key}': value
-                      for who, (signal, reason) in opinions.items()
+        views.append({f'{expert}|{key}': value
+                      for expert, (signal, reason) in expert_views(row).items()
                       for key, value in (('signal', signal), ('reason', reason))})
     out = pd.concat([out, pd.DataFrame(views, index=out.index)], axis=1)
     return out.sort_values('prob_up', ascending=False)
 
 
-def backtest_table(window):
-    lines = [f'期間 {window["start"]} ~ {window["end"]}，已扣手續費與證交稅', '',
-             '| 策略 | 總報酬 | 年化報酬 | 最大回檔 | 夏普值 |', '|---|---|---|---|---|']
-    for name, m in window['strategies'].items():
-        lines.append(f'| {name} | {m["total_return"]:+.0%} | {m["cagr"]:+.1%} | {m["max_drawdown"]:.1%} | {m["sharpe"]:.2f} |')
-    return lines
-
-
-def write_summary(meta, predictions, history, backtest):
+def write_summary(meta, predictions, history):
     date = predictions.index.max().date()
-    people = ['Mark Minervini', "William O'Neil", 'Jesse Livermore', 'Steve Burns',
-              'Meb Faber', 'Aswath Damodaran', 'Morgan Housel', 'Peter Brandt']
     lines = [
         f'# 走勢預測報告（{date}）',
         '',
@@ -194,26 +169,18 @@ def write_summary(meta, predictions, history, backtest):
         '',
         f'- 模型：{meta["model"]}（訓練時間 {meta["trained_at"]}，資料至 {meta["data_end"]}）',
         f'- Walk-forward 驗證：AUC {meta["auc"]:.3f}、準確率 {meta["accuracy"]:.1%}、基準（全猜多數類）{meta["baseline"]:.1%}',
-        f'- AUC：僅技術指標 {meta["auc_technical_only"]:.3f} → 加專家因子 {meta.get("auc_without_traders", meta["auc"]):.3f}'
-        f' → 再加交易員規則 {meta["auc"]:.3f}',
+        f'- 只用技術指標 AUC {meta["auc_technical_only"]:.3f}，加入專家因子後 {meta["auc"]:.3f}',
         f'- 模型挑出的前 20% 股票，未來 {meta["horizon"]} 日平均報酬 {meta["top_quintile_return"]:+.2%}（全體平均 {meta["avg_return"]:+.2%}）',
-        '',
-        '## 回測：完整期間',
-        '',
-        *backtest_table(backtest['full']),
-        '',
-        '## 回測：模型樣本外期間（含機器學習策略）',
-        '',
-        *backtest_table(backtest['oos']),
         '',
         '## 上漲機率前 10 名',
         '',
-        '| 代碼 | 名稱 | 上漲機率 | ' + ' | '.join(p.split(' ')[-1] for p in people) + ' |',
-        '|---|---|---|' + '---|' * len(people),
+        '| 代碼 | 名稱 | 上漲機率 | 近 20 日 | Faber | Damodaran | Bilello | Housel | Brandt |',
+        '|---|---|---|---|---|---|---|---|---|',
     ]
     for _, r in predictions.head(10).iterrows():
-        signals = ' | '.join(r[f'{p}|signal'] for p in people)
-        lines.append(f'| {r.code} | {r["name"]} | {r.prob_up:.1%} | {signals} |')
+        signals = ' | '.join(r[f'{e}|signal'] for e in ['Meb Faber', 'Aswath Damodaran', 'Charlie Bilello',
+                                                         'Morgan Housel', 'Peter Brandt'])
+        lines.append(f'| {r.code} | {r["name"]} | {r.prob_up:.1%} | {r.ret_20:+.1%} | {signals} |')
 
     lines += ['', '## 最近 10 次訓練', '', '| 執行時間 | 資料日期 | 最佳模型 | AUC | 準確率 | 更新模型 |',
               '|---|---|---|---|---|---|']

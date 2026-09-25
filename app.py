@@ -7,7 +7,6 @@ from sklearn.model_selection import train_test_split
 from sklearn.tree import DecisionTreeRegressor
 
 from trend.config import MODEL_DIR, REPORT_DIR
-from trend.traders import TRADERS
 from utils import download_history
 
 app = Flask(__name__)
@@ -107,24 +106,6 @@ def predict_next(data):
     model = new_model().fit(labeled[FEATURES], labeled['target'])
     last = data.iloc[[-1]]
     return float(last['Close'].iloc[0] * (1 + model.predict(last[FEATURES])[0]))
-
-
-@app.route('/backtest')
-def backtest():
-    path = REPORT_DIR / 'backtest.json'
-    if not path.exists():
-        return render_template('backtest.html', report=None)
-
-    report = json.loads(path.read_text(encoding='utf-8'))
-    curves = {}
-    for key in ('full', 'oos'):
-        equity = read_csv(f'equity_{key}.csv', index_col=0)
-        curves[key] = {'dates': equity.index.tolist(), 'series': {c: equity[c].round(4).tolist() for c in equity}}
-
-    predictions = read_csv('predictions.csv', dtype={'code': str})
-    picks = {t: predictions.loc[predictions[f'{t}|signal'] == '多', ['code', 'name']].to_dict('records')
-             for t in TRADERS}
-    return render_template('backtest.html', report=report, curves=curves, traders=TRADERS, picks=picks)
 
 
 @app.route('/')

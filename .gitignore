@@ -8,5 +8,4 @@ data/*.csv
 !data/2330.TW.csv
 data/prices/
 data/valuation/
-data/revenue/
 models/model.joblib

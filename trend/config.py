@@ -3,7 +3,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / 'data' / 'prices'
 VALUATION_DIR = ROOT / 'data' / 'valuation'
-REVENUE_DIR = ROOT / 'data' / 'revenue'
 MODEL_DIR = ROOT / 'models'
 REPORT_DIR = ROOT / 'reports'
 
