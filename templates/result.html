@@ -12,8 +12,8 @@
       <div class="row mb-4">
         <div class="col-sm-3 mb-2"><div class="card card-body"><small class="text-muted">R² Score</small><strong class="h4 mb-0">{{ r2 }}</strong></div></div>
         <div class="col-sm-3 mb-2"><div class="card card-body"><small class="text-muted">MSE</small><strong class="h4 mb-0">{{ mse }}</strong></div></div>
-        <div class="col-sm-3 mb-2"><div class="card card-body"><small class="text-muted">訓練筆數</small><strong class="h4 mb-0">{{ n_train }}</strong></div></div>
-        <div class="col-sm-3 mb-2"><div class="card card-body"><small class="text-muted">測試筆數</small><strong class="h4 mb-0">{{ n_test }}</strong></div></div>
+        <div class="col-sm-3 mb-2"><div class="card card-body"><small class="text-muted">漲跌方向準確率</small><strong class="h4 mb-0">{{ direction_acc }}</strong></div></div>
+        <div class="col-sm-3 mb-2"><div class="card card-body"><small class="text-muted">訓練 / 測試筆數</small><strong class="h4 mb-0">{{ n_train }} / {{ n_test }}</strong></div></div>
       </div>
       <img src="{{ image_url }}" alt="{{ symbol }} 預測圖" class="img-fluid card p-2">
       <a href="/" class="btn btn-secondary mt-4">重新預測</a>
