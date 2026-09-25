@@ -22,8 +22,8 @@
     <div class="container">
         <a class="navbar-brand" href="{{ url_for('home') }}"><i class="bi bi-diagram-3 me-2"></i>台股走勢預測</a>
         <div class="navbar-nav">
-            <a class="nav-link {{ 'active' if request.endpoint == 'home' }}" href="{{ url_for('home') }}">20 日走勢</a>
-            <a class="nav-link {{ 'active' if request.endpoint in ('regression', 'predict') }}" href="{{ url_for('regression') }}">隔日價格</a>
+            <a class="nav-link {{ 'active' if request.endpoint in ('home', 'predict') }}" href="{{ url_for('home') }}">明日預測價</a>
+            <a class="nav-link {{ 'active' if request.endpoint == 'trend' }}" href="{{ url_for('trend') }}">20 日走勢</a>
         </div>
     </div>
 </nav>

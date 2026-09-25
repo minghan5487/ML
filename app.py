@@ -1,12 +1,7 @@
 import json
-import os
-import time
 
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 import pandas as pd
-from flask import Flask, render_template, request, url_for
+from flask import Flask, render_template, request
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.tree import DecisionTreeRegressor
@@ -37,17 +32,14 @@ FEATURE_LABELS = {
 
 FEATURES = ['return', 'ma5_gap', 'ma10_gap', 'hl_range', 'oc_change', 'volume_change']
 
-plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'Microsoft YaHei', 'PingFang TC', 'Noto Sans CJK TC']
-plt.rcParams['axes.unicode_minus'] = False
-
 
 def read_csv(name, **kwargs):
     path = REPORT_DIR / name
     return pd.read_csv(path, **kwargs) if path.exists() else None
 
 
-@app.route('/')
-def home():
+@app.route('/trend')
+def trend():
     meta_path = MODEL_DIR / 'meta.json'
     if not meta_path.exists():
         return render_template('trend.html', meta=None)
@@ -86,39 +78,38 @@ def build_features(df):
         }
     )
     df['target'] = df['next_close'] / close - 1
-    df = df.replace([float('inf'), float('-inf')], float('nan')).dropna(subset=FEATURES + ['target'])
-    return df
+    return df.replace([float('inf'), float('-inf')], float('nan')).dropna(subset=FEATURES)
 
 
-def train_and_evaluate(df):
-    train, test = train_test_split(df, test_size=0.2, shuffle=False)
-    model = DecisionTreeRegressor(max_depth=5, min_samples_leaf=20, random_state=42)
-    model.fit(train[FEATURES], train['target'])
+def new_model():
+    return DecisionTreeRegressor(max_depth=5, min_samples_leaf=20, random_state=42)
 
+
+def evaluate(labeled):
+    train, test = train_test_split(labeled, test_size=0.2, shuffle=False)
+    model = new_model().fit(train[FEATURES], train['target'])
     pred_return = model.predict(test[FEATURES])
     actual = test['next_close']
-    predicted = pd.Series(test['Close'].values * (1 + pred_return), index=test.index)
-
-    direction_acc = ((pred_return > 0) == (test['target'] > 0)).mean()
-    return actual, predicted, mean_squared_error(actual, predicted), r2_score(actual, predicted), direction_acc, len(train)
-
-
-def save_plot(symbol, actual, predicted):
-    plt.figure(figsize=(12, 6))
-    plt.plot(actual.index, actual.values, label='實際值')
-    plt.plot(predicted.index, predicted.values, label='預測值')
-    plt.xlabel('日期')
-    plt.ylabel('收盤價')
-    plt.title(f'{symbol} 隔日收盤價預測')
-    plt.legend()
-    plt.tight_layout()
-    os.makedirs(app.static_folder, exist_ok=True)
-    plt.savefig(os.path.join(app.static_folder, 'prediction.png'))
-    plt.close()
+    predicted = test['Close'] * (1 + pred_return)
+    return {
+        'direction_acc': ((pred_return > 0) == (test['target'] > 0)).mean(),
+        'mae': (actual - predicted).abs().mean(),
+        'r2': r2_score(actual, predicted),
+        'mse': mean_squared_error(actual, predicted),
+        'n_train': len(train),
+        'n_test': len(test),
+    }
 
 
-@app.route('/regression')
-def regression():
+def predict_next(data):
+    labeled = data.dropna(subset=['target'])
+    model = new_model().fit(labeled[FEATURES], labeled['target'])
+    last = data.iloc[[-1]]
+    return float(last['Close'].iloc[0] * (1 + model.predict(last[FEATURES])[0]))
+
+
+@app.route('/')
+def home():
     return render_template('index.html')
 
 
@@ -140,12 +131,16 @@ def predict():
     if len(data) < 100:
         return render_template('index.html', error='資料量不足，請拉長年數')
 
-    actual, predicted, mse, r2, direction_acc, n_train = train_and_evaluate(data)
-    save_plot(symbol, actual, predicted)
+    last_close = float(data['Close'].iloc[-1])
+    predicted = predict_next(data)
+    recent = data['Close'].tail(60)
 
-    return render_template('result.html', symbol=symbol, mse=round(mse, 2), r2=round(r2, 4),
-                           direction_acc=f'{direction_acc:.1%}', n_train=n_train, n_test=len(actual),
-                           image_url=url_for('static', filename='prediction.png', v=int(time.time())))
+    return render_template(
+        'result.html', symbol=symbol, last_date=data.index[-1].date(), last_close=last_close,
+        predicted=predicted, change=predicted - last_close, change_pct=(predicted / last_close - 1) * 100,
+        dates=[d.strftime('%Y-%m-%d') for d in recent.index], prices=recent.round(2).tolist(),
+        metrics=evaluate(data.dropna(subset=['target'])),
+    )
 
 
 if __name__ == '__main__':
