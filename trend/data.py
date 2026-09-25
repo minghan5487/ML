@@ -5,7 +5,7 @@ import pandas as pd
 import requests
 import yfinance as yf
 
-from trend.config import DATA_DIR, MARKET, START_DATE, STOCKS, VALUATION_DIR
+from trend.config import DATA_DIR, MARKET, REVENUE_DIR, START_DATE, STOCKS, VALUATION_DIR
 
 FINMIND_URL = 'https://api.finmindtrade.com/api/v4/data'
 
@@ -18,15 +18,26 @@ def is_fresh(path):
     return path.exists() and date.fromtimestamp(path.stat().st_mtime) == date.today()
 
 
-def download_valuation(code):
-    resp = requests.get(FINMIND_URL, params={'dataset': 'TaiwanStockPER', 'data_id': code, 'start_date': START_DATE},
-                        timeout=60)
+def finmind(dataset, code):
+    resp = requests.get(FINMIND_URL, params={'dataset': dataset, 'data_id': code, 'start_date': START_DATE}, timeout=60)
     resp.raise_for_status()
     df = pd.DataFrame(resp.json()['data'])
+    if not df.empty:
+        df['date'] = pd.to_datetime(df['date'])
+    return df
+
+
+def download_valuation(code):
+    df = finmind('TaiwanStockPER', code)
+    return df if df.empty else df.set_index('date')[['PER', 'PBR', 'dividend_yield']]
+
+
+def download_revenue(code):
+    df = finmind('TaiwanStockMonthRevenue', code)
     if df.empty:
         return df
-    df['date'] = pd.to_datetime(df['date'])
-    return df.set_index('date')[['PER', 'PBR', 'dividend_yield']]
+    df['available'] = df['date'] + pd.Timedelta(days=10)
+    return df.set_index('available')[['revenue_year', 'revenue_month', 'revenue']]
 
 
 def download(symbol, retries=3):
@@ -58,17 +69,19 @@ def update_all(force=False):
         df.to_csv(path)
         print(f'[{i}/{len(symbols)}] {symbol} {len(df)} 筆，最新 {df.index[-1].date()}')
 
-    for i, code in enumerate(STOCKS, 1):
-        path = VALUATION_DIR / f'{code}.csv'
-        if not force and is_fresh(path):
-            continue
-        try:
-            df = download_valuation(code)
-            df.to_csv(path)
-            print(f'[估值 {i}/{len(STOCKS)}] {code} {len(df)} 筆')
-        except Exception as e:
-            print(f'[估值 {i}/{len(STOCKS)}] {code} 下載失敗：{e}')
-        time.sleep(0.5)
+    REVENUE_DIR.mkdir(parents=True, exist_ok=True)
+    for label, folder, fetch in [('估值', VALUATION_DIR, download_valuation), ('營收', REVENUE_DIR, download_revenue)]:
+        for i, code in enumerate(STOCKS, 1):
+            path = folder / f'{code}.csv'
+            if not force and is_fresh(path):
+                continue
+            try:
+                df = fetch(code)
+                df.to_csv(path)
+                print(f'[{label} {i}/{len(STOCKS)}] {code} {len(df)} 筆')
+            except Exception as e:
+                print(f'[{label} {i}/{len(STOCKS)}] {code} 下載失敗：{e}')
+            time.sleep(0.5)
 
 
 def load(symbol):
@@ -80,6 +93,13 @@ def load(symbol):
 
 def load_valuation(code):
     path = VALUATION_DIR / f'{code}.csv'
+    if not path.exists():
+        return None
+    return pd.read_csv(path, index_col=0, parse_dates=True)
+
+
+def load_revenue(code):
+    path = REVENUE_DIR / f'{code}.csv'
     if not path.exists():
         return None
     return pd.read_csv(path, index_col=0, parse_dates=True)

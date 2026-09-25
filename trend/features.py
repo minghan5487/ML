@@ -3,6 +3,7 @@ import pandas as pd
 
 from trend.config import HORIZON, MARKET, STOCKS
 from trend.data import load, load_valuation
+from trend.traders import TRADER_FEATURES, add_cross_sectional, stock_trader_features
 
 TECHNICAL = [
     'ret_5', 'ret_20', 'ret_60', 'ma_gap_20', 'ma_gap_60', 'rsi_14', 'macd_hist',
@@ -15,8 +16,9 @@ EXPERT = [
     'mkt_drawdown_250', 'mkt_trend_200',
     'high_52w_gap', 'vwap_gap_20',
 ]
-FEATURES = TECHNICAL + EXPERT
-REQUIRED = [f for f in FEATURES if f not in ('per', 'pbr', 'dividend_yield', 'per_vs_3y', 'pbr_vs_3y')]
+FEATURES = TECHNICAL + EXPERT + TRADER_FEATURES
+OPTIONAL = ('per', 'pbr', 'dividend_yield', 'per_vs_3y', 'pbr_vs_3y', 'rev_yoy')
+REQUIRED = [f for f in FEATURES if f not in OPTIONAL]
 
 
 def rsi(close, period=14):
@@ -73,6 +75,7 @@ def market_features():
         'mkt_ret_20': close.pct_change(20),
         'mkt_drawdown_250': close / close.rolling(250).max() - 1,
         'mkt_trend_200': close / close.rolling(200).mean() - 1,
+        'mkt_ma_gap_50': close / close.rolling(50).mean() - 1,
     })
 
 
@@ -86,6 +89,7 @@ def build_dataset():
             continue
         feats = price_features(df).join(market, how='left')
         feats = feats.join(valuation_features(code, df.index))
+        feats = feats.join(stock_trader_features(code, df))
         feats['rel_strength_20'] = feats['ret_20'] - feats['mkt_ret_20']
         feats['future_return'] = df['Close'].shift(-HORIZON) / df['Close'] - 1
         feats['close'] = df['Close']
@@ -97,14 +101,16 @@ def build_dataset():
     breadth = above_200.sum(axis=1).astype(float) / valid.sum(axis=1).replace(0, np.nan)
 
     data = pd.concat(frames.values())
-    data['breadth_200'] = breadth.reindex(data.index).values
-    data = data.replace([np.inf, -np.inf], np.nan).dropna(subset=REQUIRED)
     data.index.name = 'date'
+    data['breadth_200'] = breadth.reindex(data.index).values
+    data = add_cross_sectional(data)
+    data = data.replace([np.inf, -np.inf], np.nan).dropna(subset=REQUIRED)
     data['label'] = (data['future_return'] > 0).astype(int)
 
-    labeled = data[data['future_return'].notna()].sort_index()
+    data = data.sort_index()
+    labeled = data[data['future_return'].notna()]
     latest = data[data.index == data.index.max()]
-    return labeled, latest
+    return labeled, latest, data
 
 
 def expert_views(row):
