@@ -1,0 +1,13 @@
+{
+  "model": "random_forest",
+  "auc": 0.5503,
+  "accuracy": 0.5657,
+  "baseline": 0.5714,
+  "auc_technical_only": 0.5256,
+  "top_quintile_return": 0.0339,
+  "avg_return": 0.0244,
+  "trained_at": "2026-09-25 13:29",
+  "horizon": 20,
+  "data_end": "2026-08-27",
+  "samples": 164228
+}

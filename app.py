@@ -1,3 +1,4 @@
+import json
 import os
 import time
 
@@ -10,14 +11,65 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.tree import DecisionTreeRegressor
 
+from trend.config import MODEL_DIR, REPORT_DIR
 from utils import download_history
 
 app = Flask(__name__)
+
+EXPERTS = {
+    'Meb Faber': '趨勢跟隨',
+    'Aswath Damodaran': '估值',
+    'Charlie Bilello': '市場廣度',
+    'Morgan Housel': '長期心態',
+    'Peter Brandt': '技術突破',
+}
+FEATURE_LABELS = {
+    'mkt_drawdown_250': '大盤距一年高點（Housel）', 'faber_trend_200': '200 日均線乖離（Faber）',
+    'high_52w_gap': '距 52 週高點（Brandt）', 'vwap_gap_20': '20 日 VWAP 乖離（Brandt）',
+    'mom_12_1': '12-1 月動能（Faber）', 'breadth_200': '站上 200 日線比例（Bilello）',
+    'mkt_trend_200': '大盤 200 日乖離（Housel）', 'per': '本益比（Damodaran）', 'pbr': '淨值比（Damodaran）',
+    'dividend_yield': '殖利率（Damodaran）', 'per_vs_3y': '本益比 vs 3 年中位數（Damodaran）',
+    'pbr_vs_3y': '淨值比 vs 3 年中位數（Damodaran）', 'ret_5': '5 日報酬', 'ret_20': '20 日報酬',
+    'ret_60': '60 日報酬', 'ma_gap_20': '20 日均線乖離', 'ma_gap_60': '60 日均線乖離', 'rsi_14': 'RSI(14)',
+    'macd_hist': 'MACD 柱狀體', 'volatility_20': '20 日波動率', 'volume_ratio': '量比',
+    'hl_range': '平均振幅', 'rel_strength_20': '相對大盤強弱',
+}
 
 FEATURES = ['return', 'ma5_gap', 'ma10_gap', 'hl_range', 'oc_change', 'volume_change']
 
 plt.rcParams['font.sans-serif'] = ['Microsoft JhengHei', 'Microsoft YaHei', 'PingFang TC', 'Noto Sans CJK TC']
 plt.rcParams['axes.unicode_minus'] = False
+
+
+def read_csv(name, **kwargs):
+    path = REPORT_DIR / name
+    return pd.read_csv(path, **kwargs) if path.exists() else None
+
+
+@app.route('/')
+def home():
+    meta_path = MODEL_DIR / 'meta.json'
+    if not meta_path.exists():
+        return render_template('trend.html', meta=None)
+
+    meta = json.loads(meta_path.read_text(encoding='utf-8'))
+    predictions = read_csv('predictions.csv', dtype={'code': str})
+    history = read_csv('history.csv')
+    folds = read_csv('folds.csv')
+    importance = read_csv('importance.csv').head(10)
+    importance['label'] = importance['feature'].map(FEATURE_LABELS).fillna(importance['feature'])
+
+    stocks = []
+    for _, r in predictions.iterrows():
+        stocks.append({
+            'code': r.code, 'name': r['name'], 'close': r.close, 'ret_20': r.ret_20, 'prob_up': r.prob_up,
+            'views': [(e, r[f'{e}|signal'], r[f'{e}|reason']) for e in EXPERTS],
+        })
+
+    consensus = {e: predictions[f'{e}|signal'].value_counts().to_dict() for e in EXPERTS}
+    return render_template('trend.html', meta=meta, stocks=stocks, experts=EXPERTS, consensus=consensus,
+                           history=history.to_dict('records'), folds=folds.to_dict('records'),
+                           importance=importance.to_dict('records'), data_date=predictions['date'].iloc[0])
 
 
 def build_features(df):
@@ -65,8 +117,8 @@ def save_plot(symbol, actual, predicted):
     plt.close()
 
 
-@app.route('/')
-def home():
+@app.route('/regression')
+def regression():
     return render_template('index.html')
 
 

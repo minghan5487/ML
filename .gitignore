@@ -3,7 +3,9 @@ __pycache__/
 .venv/
 venv/
 
-# 執行時產生的檔案
 static/prediction.png
 data/*.csv
 !data/2330.TW.csv
+data/prices/
+data/valuation/
+models/model.joblib
