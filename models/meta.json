@@ -1,12 +1,12 @@
 {
-  "model": "gradient_boosting",
-  "auc": 0.556,
-  "accuracy": 0.5593,
+  "model": "random_forest",
+  "auc": 0.5544,
+  "accuracy": 0.5651,
   "baseline": 0.5719,
-  "auc_technical_only": 0.5192,
-  "top_quintile_return": 0.0399,
+  "auc_technical_only": 0.5242,
+  "top_quintile_return": 0.0333,
   "avg_return": 0.0247,
-  "trained_at": "2026-10-13 03:42",
+  "trained_at": "2026-10-14 01:27",
   "horizon": 20,
   "data_end": "2026-09-08",
   "samples": 164628
