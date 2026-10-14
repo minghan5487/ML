@@ -1,13 +1,13 @@
 {
-  "model": "random_forest",
-  "auc": 0.5544,
-  "accuracy": 0.5651,
-  "baseline": 0.5719,
-  "auc_technical_only": 0.5242,
-  "top_quintile_return": 0.0333,
-  "avg_return": 0.0247,
-  "trained_at": "2026-10-14 01:27",
+  "model": "gradient_boosting",
+  "auc": 0.5579,
+  "accuracy": 0.5577,
+  "baseline": 0.5729,
+  "auc_technical_only": 0.5219,
+  "top_quintile_return": 0.0412,
+  "avg_return": 0.0248,
+  "trained_at": "2026-10-14 22:58",
   "horizon": 20,
-  "data_end": "2026-09-08",
-  "samples": 164628
+  "data_end": "2026-09-11",
+  "samples": 164778
 }
