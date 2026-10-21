@@ -18,3 +18,4 @@ run_at,data_end,best_model,auc,accuracy,baseline,auc_technical_only,replaced,auc
 2026-10-16 22:37,2026-10-16,gradient_boosting,0.558,0.5635,0.5737,0.5197,True,0.5438,0.5533,0.558
 2026-10-20 00:52,2026-10-16,gradient_boosting,0.554,0.5635,0.5737,0.5212,True,0.5438,0.5534,0.554
 2026-10-20 22:46,2026-10-20,gradient_boosting,0.5578,0.5599,0.5741,0.5209,True,0.5448,0.5533,0.5578
+2026-10-21 22:56,2026-10-21,gradient_boosting,0.5558,0.5619,0.5742,0.5182,True,0.5449,0.552,0.5558
