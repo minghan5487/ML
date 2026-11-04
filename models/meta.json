@@ -1,13 +1,13 @@
 {
   "model": "gradient_boosting",
-  "auc": 0.5536,
-  "accuracy": 0.5598,
-  "baseline": 0.5746,
-  "auc_technical_only": 0.519,
-  "top_quintile_return": 0.0386,
-  "avg_return": 0.0251,
-  "trained_at": "2026-11-04 01:38",
+  "auc": 0.5558,
+  "accuracy": 0.5622,
+  "baseline": 0.5745,
+  "auc_technical_only": 0.5216,
+  "top_quintile_return": 0.0399,
+  "avg_return": 0.025,
+  "trained_at": "2026-11-05 01:50",
   "horizon": 20,
-  "data_end": "2026-10-01",
-  "samples": 165378
+  "data_end": "2026-10-02",
+  "samples": 165428
 }
