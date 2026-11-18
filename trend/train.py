@@ -17,6 +17,8 @@ from trend.config import HORIZON, MODEL_DIR, REPORT_DIR, STOCKS
 from trend.data import update_all
 from trend.features import FEATURES, TECHNICAL, build_dataset, expert_views
 
+MARKET_LEVEL = ['mkt_drawdown_250', 'mkt_trend_200', 'breadth_200']
+
 N_FOLDS = 5
 TEST_DAYS = 250
 REPLACE_TOLERANCE = 0.005
@@ -95,12 +97,20 @@ def main(skip_download=False, force=False):
         f = results[name]
         print(f'{name:18s} AUC {f.auc.mean():.4f}  準確率 {f.accuracy.mean():.2%}  基準 {f.baseline.mean():.2%}')
 
+    if all(r.empty or pd.isna(r.auc.mean()) for r in results.values()):
+        raise RuntimeError('walk-forward 沒有產生任何有效折，中止（避免靜默保留舊模型）')
+
     best_name = max(results, key=lambda n: results[n].auc.mean())
     best = results[best_name]
     new_auc = best.auc.mean()
 
     technical_only = evaluate(candidates()[best_name], data, TECHNICAL)
     print(f'{best_name} 僅技術指標 AUC {technical_only.auc.mean():.4f}')
+
+    # 市場層級特徵（當日跨個股同值）的邊際貢獻；消融顯示它們拉高歷史平均
+    # 但在最近一折可能是負貢獻，長期追蹤這個差值才看得出 regime 過擬合。
+    no_market = evaluate(candidates()[best_name], data, [f for f in FEATURES if f not in MARKET_LEVEL])
+    print(f'{best_name} 去除市場層級 AUC {no_market.auc.mean():.4f}')
 
     meta = load_meta()
     has_model = (MODEL_DIR / 'model.joblib').exists()
@@ -119,9 +129,12 @@ def main(skip_download=False, force=False):
         meta = {
             'model': best_name, 'auc': round(new_auc, 4), 'accuracy': round(best.accuracy.mean(), 4),
             'baseline': round(best.baseline.mean(), 4), 'auc_technical_only': round(technical_only.auc.mean(), 4),
+            'auc_no_market': round(no_market.auc.mean(), 4),
             'top_quintile_return': round(best.top_quintile_return.mean(), 4),
             'avg_return': round(best.avg_return.mean(), 4),
-            'trained_at': run_time, 'horizon': HORIZON, 'data_end': str(data.index.max().date()),
+            'trained_at': run_time, 'horizon': HORIZON,
+            'train_label_end': str(data.index.max().date()),
+            'data_end': str(latest.index.max().date()),
             'samples': len(data),
         }
         (MODEL_DIR / 'meta.json').write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding='utf-8')
@@ -135,14 +148,16 @@ def main(skip_download=False, force=False):
         'run_at': run_time, 'data_end': str(latest.index.max().date()), 'best_model': best_name,
         'auc': round(new_auc, 4), 'accuracy': round(best.accuracy.mean(), 4),
         'baseline': round(best.baseline.mean(), 4), 'auc_technical_only': round(technical_only.auc.mean(), 4),
+        'auc_no_market': round(no_market.auc.mean(), 4),
         'replaced': replaced, **{f'auc_{n}': round(r.auc.mean(), 4) for n, r in results.items()},
     }])
     history = pd.concat([pd.read_csv(history_path), row]) if history_path.exists() else row
+    history = history.drop_duplicates(subset='data_end', keep='last').reset_index(drop=True)
     history.to_csv(history_path, index=False)
 
     predictions = predict_latest(latest)
     predictions.to_csv(REPORT_DIR / 'predictions.csv')
-    write_summary(meta, predictions, history)
+    write_summary(meta, predictions, history, best, replaced, no_market, technical_only)
 
 
 def predict_latest(latest):
@@ -160,14 +175,16 @@ def predict_latest(latest):
     return out.sort_values('prob_up', ascending=False)
 
 
-def write_summary(meta, predictions, history):
+def write_summary(meta, predictions, history, folds=None, replaced=True, no_market=None, technical_only=None):
     date = predictions.index.max().date()
     lines = [
         f'# 走勢預測報告（{date}）',
         '',
         f'預測 0050 成分股未來 {meta["horizon"]} 個交易日上漲的機率。此報告由 GitHub Actions 每個交易日自動產生。',
         '',
-        f'- 模型：{meta["model"]}（訓練時間 {meta["trained_at"]}，資料至 {meta["data_end"]}）',
+        f'- 模型：{meta["model"]}（訓練時間 {meta["trained_at"]}）',
+        f'- 預測基準日 {meta.get("data_end", "—")}；訓練標籤最後日期 {meta.get("train_label_end", "—")}'
+        f'（相隔 {meta["horizon"]} 個交易日，因標籤需要未來報酬）',
         f'- Walk-forward 驗證：AUC {meta["auc"]:.3f}、準確率 {meta["accuracy"]:.1%}、基準（全猜多數類）{meta["baseline"]:.1%}',
         f'- 只用技術指標 AUC {meta["auc_technical_only"]:.3f}，加入專家因子後 {meta["auc"]:.3f}',
         f'- 模型挑出的前 20% 股票，未來 {meta["horizon"]} 日平均報酬 {meta["top_quintile_return"]:+.2%}（全體平均 {meta["avg_return"]:+.2%}）',
@@ -181,6 +198,25 @@ def write_summary(meta, predictions, history):
         signals = ' | '.join(r[f'{e}|signal'] for e in ['Meb Faber', 'Aswath Damodaran', 'Charlie Bilello',
                                                          'Morgan Housel', 'Peter Brandt'])
         lines.append(f'| {r.code} | {r["name"]} | {r.prob_up:.1%} | {r.ret_20:+.1%} | {signals} |')
+
+    if folds is not None and len(folds):
+        owner = '本次採用的模型' if replaced else '本次候選模型（未採用；上方指標為現行上線模型）'
+        lines += ['', f'## 各折驗證（{owner}）', '',
+                  '平均值會掩蓋各折差異，故逐折列出。',
+                  '', '| 期間 | AUC | 準確率 | 基準 | 前 20% 報酬 | 全體平均 |', '|---|---|---|---|---|---|']
+        for _, r in folds.iterrows():
+            lines.append(f'| {r.period} | {r.auc:.3f} | {r.accuracy:.1%} | {r.baseline:.1%} | '
+                         f'{r.top_quintile_return:+.2%} | {r.avg_return:+.2%} |')
+
+    if no_market is not None and technical_only is not None:
+        full = folds.auc.mean() if folds is not None and len(folds) else float('nan')
+        lines += ['', '## 特徵消融', '',
+                  '市場層級特徵（當日跨個股同值）的邊際貢獻；若此值長期縮小或轉負，代表它們只是對過去市場 regime 過擬合。',
+                  '', '| 特徵組 | 平均 AUC | 各折 |', '|---|---|---|',
+                  f'| 全部特徵 | {full:.4f} | ' + ' / '.join(f'{a:.3f}' for a in folds.auc) + ' |',
+                  f'| 去除市場層級 | {no_market.auc.mean():.4f} | ' + ' / '.join(f'{a:.3f}' for a in no_market.auc) + ' |',
+                  f'| 僅技術指標 | {technical_only.auc.mean():.4f} | ' + ' / '.join(f'{a:.3f}' for a in technical_only.auc) + ' |',
+                  '', f'市場層級特徵邊際貢獻：{full - no_market.auc.mean():+.4f}']
 
     lines += ['', '## 最近 10 次訓練', '', '| 執行時間 | 資料日期 | 最佳模型 | AUC | 準確率 | 更新模型 |',
               '|---|---|---|---|---|---|']
