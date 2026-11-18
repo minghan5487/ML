@@ -29,6 +29,9 @@ def evaluate_vol(model, data, features):
         model.fit(train[features], train[LABEL])
         prob = model.predict_proba(test[features])[:, 1]
         majority = int(train[LABEL].mean() >= 0.5)
+        top = prob >= np.quantile(prob, 0.9)
+        pv = test['volatility_20'].values
+        naive = pv <= np.quantile(pv, 0.1)
 
         scores.append({
             'period': f'{pd.Timestamp(test_dates[0]).date()} ~ {pd.Timestamp(test_dates[-1]).date()}',
@@ -38,8 +41,16 @@ def evaluate_vol(model, data, features):
             'positive_rate': test[LABEL].mean(),
             # 只看模型最有把握的一成，準確率通常明顯更高
             'top_decile_accuracy': accuracy_score(
-                test[LABEL][prob >= np.quantile(prob, 0.9)],
-                np.ones((prob >= np.quantile(prob, 0.9)).sum())),
+                test[LABEL][top], np.ones(top.sum())),
+            # 對照組：不用模型，純靠波動度均值回歸。
+            # 「過去 20 日波動最低的一成 → 猜未來會放大」。
+            # 若這條一行規則就打平模型，那 85% 不是機器學習的功勞。
+            'naive_accuracy': accuracy_score(
+                test[LABEL][naive], np.ones(naive.sum())),
+            # 前 10% 落在幾個不同交易日上。波動是全市場同步的，
+            # 若集中在少數日期，有效樣本數遠小於筆數，信賴區間要放很寬。
+            'top_decile_days': test.index[top].nunique(),
+            'test_days': test.index.nunique(),
         })
     return pd.DataFrame(scores)
 
@@ -55,7 +66,8 @@ def main():
         f = evaluate_vol(model, data, FEATURES)
         results[name] = f
         print(f'{name:18s} AUC {f.auc.mean():.4f}  準確率 {f.accuracy.mean():.2%}  '
-              f'基準 {f.baseline.mean():.2%}  前10%把握 {f.top_decile_accuracy.mean():.2%}')
+              f'基準 {f.baseline.mean():.2%}  前10%把握 {f.top_decile_accuracy.mean():.2%}  '
+              f'（一行規則對照 {f.naive_accuracy.mean():.2%}）')
 
     best_name = max(results, key=lambda n: results[n].auc.mean())
     best = results[best_name]
@@ -70,15 +82,17 @@ def main():
         f'- 平均 AUC {best.auc.mean():.3f}、準確率 {best.accuracy.mean():.1%}、'
         f'基準（全猜多數類）{best.baseline.mean():.1%}',
         f'- 僅取模型最有把握的前 10%：準確率 {best.top_decile_accuracy.mean():.1%}',
+        f'- 一行規則對照組（過去波動最低的一成就猜放大）：{best.naive_accuracy.mean():.1%}',
         '',
         '## 各折',
         '',
-        '| 期間 | AUC | 準確率 | 基準 | 正樣本率 | 前10%把握準確率 |',
-        '|---|---|---|---|---|---|',
+        '| 期間 | AUC | 準確率 | 基準 | 正樣本率 | 前10%把握 | 一行規則 | 前10%涵蓋天數／測試天數 |',
+        '|---|---|---|---|---|---|---|---|',
     ]
     for _, r in best.iterrows():
         lines.append(f'| {r.period} | {r.auc:.3f} | {r.accuracy:.1%} | {r.baseline:.1%} | '
-                     f'{r.positive_rate:.1%} | {r.top_decile_accuracy:.1%} |')
+                     f'{r.positive_rate:.1%} | {r.top_decile_accuracy:.1%} | {r.naive_accuracy:.1%} | '
+                     f'{int(r.top_decile_days)}／{int(r.test_days)} |')
 
     lines += ['', '## 各模型比較', '', '| 模型 | 平均 AUC | 準確率 | 基準 |', '|---|---|---|---|']
     for n, f in results.items():
@@ -87,6 +101,8 @@ def main():
     lines += [
         '',
         '> 準確率必須與同列的「基準」一起看。若準確率高只是因為正樣本率本來就高，那不是預測能力。',
+        '> 也必須與「一行規則」一起看：若兩者相近，代表這個準確率來自波動度均值回歸，而非模型學到東西。',
+        '> 「前10%涵蓋天數」偏少時，筆數再多有效樣本仍少，不要把準確率當成穩定的估計。',
         '> 僅為機器學習練習，不構成投資建議。',
         '',
     ]
