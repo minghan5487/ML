@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 
 from trend.config import HORIZON, MARKET, STOCKS
-from trend.data import load, load_valuation
+from trend.data import load, load_chip, load_margin, load_revenue, load_valuation
 
 TECHNICAL = [
     'ret_5', 'ret_20', 'ret_60', 'ma_gap_20', 'ma_gap_60', 'rsi_14', 'macd_hist',
@@ -15,8 +15,17 @@ EXPERT = [
     'mkt_drawdown_250', 'mkt_trend_200',
     'high_52w_gap', 'vwap_gap_20',
 ]
-FEATURES = TECHNICAL + EXPERT
-REQUIRED = [f for f in FEATURES if f not in ('per', 'pbr', 'dividend_yield', 'per_vs_3y', 'pbr_vs_3y')]
+# 非價格資料：籌碼面與基本面。全部以「當日已可取得」為原則對齊，
+# 月營收另加公布落後天數（見 config.REVENUE_PUBLISH_LAG_DAYS）。
+FLOW = [
+    'foreign_net_5', 'foreign_net_20', 'trust_net_5', 'trust_net_20',
+    'margin_chg_5', 'margin_chg_20', 'short_margin_ratio',
+    'revenue_yoy', 'revenue_yoy_chg',
+]
+FEATURES = TECHNICAL + EXPERT + FLOW
+# 這些欄位允許缺值（由 imputer 處理），不納入 dropna 條件
+OPTIONAL = ['per', 'pbr', 'dividend_yield', 'per_vs_3y', 'pbr_vs_3y'] + FLOW
+REQUIRED = [f for f in FEATURES if f not in OPTIONAL]
 
 
 def rsi(close, period=14):
@@ -70,6 +79,47 @@ def valuation_features(code, index):
 MARKET_FFILL_LIMIT = 3
 
 
+def flow_features(code, index, volume):
+    """籌碼與基本面特徵。index 為該股交易日，volume 用來把法人買賣超正規化。"""
+    out = pd.DataFrame(index=index)
+
+    chip = load_chip(code)
+    if chip is not None and not chip.empty:
+        chip = chip.reindex(index)
+        vol20 = volume.rolling(20).mean()
+        for side in ('foreign', 'trust'):
+            col = f'{side}_net'
+            if col in chip.columns:
+                net = chip[col].fillna(0)
+                out[f'{side}_net_5'] = net.rolling(5).sum() / vol20
+                out[f'{side}_net_20'] = net.rolling(20).sum() / vol20
+
+    margin = load_margin(code)
+    if margin is not None and not margin.empty:
+        margin = margin.reindex(index).ffill(limit=5)
+        bal = margin['margin_balance']
+        out['margin_chg_5'] = bal / bal.shift(5) - 1
+        out['margin_chg_20'] = bal / bal.shift(20) - 1
+        out['short_margin_ratio'] = margin['short_balance'] / bal.replace(0, np.nan)
+
+    rev = load_revenue(code)
+    if rev is not None and not rev.empty and 'available_at' in rev.columns:
+        rev = rev.copy()
+        rev['available_at'] = pd.to_datetime(rev['available_at'])
+        rev['yoy'] = rev['revenue'] / rev['revenue'].shift(12) - 1
+        # 以「最早可用日」為索引往後填補，確保任一交易日只看得到當時已公布的營收
+        avail = rev.dropna(subset=['yoy']).set_index('available_at')[['yoy']].sort_index()
+        avail = avail[~avail.index.duplicated(keep='last')]
+        aligned = avail.reindex(avail.index.union(index)).ffill().reindex(index)
+        out['revenue_yoy'] = aligned['yoy']
+        out['revenue_yoy_chg'] = aligned['yoy'] - aligned['yoy'].shift(20)
+
+    for col in FLOW:
+        if col not in out.columns:
+            out[col] = np.nan
+    return out[FLOW]
+
+
 def market_features():
     close = load(MARKET)['Close']
     return pd.DataFrame({
@@ -91,8 +141,14 @@ def build_dataset():
         # 否則當日所有個股會因 mkt_* 為 NaN 而被 dropna 整批刪除（預測永遠慢一天）。
         feats = price_features(df).join(market.reindex(df.index).ffill(limit=MARKET_FFILL_LIMIT), how='left')
         feats = feats.join(valuation_features(code, df.index))
+        feats = feats.join(flow_features(code, df.index, df['Volume']))
         feats['rel_strength_20'] = feats['ret_20'] - feats['mkt_ret_20']
         feats['future_return'] = df['Close'].shift(-HORIZON) / df['Close'] - 1
+        # 波動度標籤：未來 HORIZON 日實現波動 vs 過去 HORIZON 日
+        ret = df['Close'].pct_change()
+        # ret.shift(-H) 在 t 取到 ret[t+H]；再 rolling(H) 即 ret[t+1..t+H] 的標準差
+        feats['future_vol'] = ret.shift(-HORIZON).rolling(HORIZON).std()
+        feats['past_vol'] = ret.rolling(HORIZON).std()
         feats['close'] = df['Close']
         feats['code'] = code
         frames[code] = feats
@@ -106,6 +162,8 @@ def build_dataset():
     data = data.replace([np.inf, -np.inf], np.nan).dropna(subset=REQUIRED)
     data.index.name = 'date'
     data['label'] = (data['future_return'] > 0).astype(int)
+    # 波動度放大與否（未來 20 日實現波動 > 過去 20 日），用於另一條可預測性較高的標的
+    data['label_vol'] = (data['future_vol'] > data['past_vol']).astype(int)
 
     labeled = data[data['future_return'].notna()].sort_index()
     latest = data[data.index == data.index.max()]
