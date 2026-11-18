@@ -1,0 +1,72 @@
+name: 研究：波動度模型與含成本回測
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      TZ: Asia/Taipei
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: 下載資料（含籌碼、融資券、月營收）
+        run: python -m trend.data 2>&1 | tee download.log
+
+      - name: 資料覆蓋率
+        run: |
+          {
+            echo '## 資料覆蓋率'
+            echo
+            echo '```text'
+            for d in prices valuation chip margin revenue; do
+              echo "$d: $(ls -1 data/$d 2>/dev/null | wc -l) 檔"
+            done
+            echo
+            echo '--- 零位元組或極小的檔案 ---'
+            find data -name '*.csv' -size -3c -print || echo '（無）'
+            echo
+            echo '--- FinMind 取數結果 ---'
+            grep -E '^\[(估值|籌碼|融資券|月營收)\]' download.log || echo '（無統計行）'
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: 波動度方向模型
+        run: |
+          {
+            echo '## 波動度方向模型'
+            echo
+            echo '```text'
+            python -m trend.vol 2>&1
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: 含成本回測
+        run: |
+          {
+            echo '## 含成本回測'
+            echo
+            echo '```text'
+            python -m trend.backtest 2>&1
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: 保留報告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: reports
+          path: reports/
+          if-no-files-found: warn
