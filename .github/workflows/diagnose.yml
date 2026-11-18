@@ -27,18 +27,30 @@ jobs:
 
       - name: 下載結果統計
         run: |
-          echo "=== 下載失敗筆數 ==="
-          grep -c "下載失敗" download.log || true
-          echo
-          echo "=== 失敗明細 ==="
-          grep "下載失敗" download.log || echo "（無失敗）"
-          echo
-          echo "=== 實際產出的檔案數 ==="
-          echo "價格檔: $(ls -1 data/prices 2>/dev/null | wc -l)"
-          echo "估值檔: $(ls -1 data/valuation 2>/dev/null | wc -l)"
-          echo
-          echo "=== 零位元組或極小的檔案 ==="
-          find data -name '*.csv' -size -3c -print || true
+          {
+            echo '## 下載結果'
+            echo
+            echo '```text'
+            echo "下載失敗筆數: $(grep -c '下載失敗' download.log || true)"
+            echo
+            echo '--- 失敗明細 ---'
+            grep '下載失敗' download.log || echo '（無失敗）'
+            echo
+            echo '--- 實際產出檔案數 ---'
+            echo "價格檔: $(ls -1 data/prices 2>/dev/null | wc -l)"
+            echo "估值檔: $(ls -1 data/valuation 2>/dev/null | wc -l)"
+            echo
+            echo '--- 零位元組或極小的檔案 ---'
+            find data -name '*.csv' -size -3c -print || true
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: 唯讀診斷
-        run: python -m trend.diagnose
+        run: |
+          {
+            echo '## 診斷輸出'
+            echo
+            echo '```text'
+            python -m trend.diagnose 2>&1
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
