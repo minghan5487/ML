@@ -64,6 +64,10 @@ def update_all(force=False):
             continue
         try:
             df = download_valuation(code)
+            if df is None or df.empty:
+                print(f'[估值 {i}/{len(STOCKS)}] {code} 無資料，不寫檔（保留既有檔案）')
+                time.sleep(0.5)
+                continue
             df.to_csv(path)
             print(f'[估值 {i}/{len(STOCKS)}] {code} {len(df)} 筆')
         except Exception as e:
@@ -82,7 +86,11 @@ def load_valuation(code):
     path = VALUATION_DIR / f'{code}.csv'
     if not path.exists():
         return None
-    return pd.read_csv(path, index_col=0, parse_dates=True)
+    try:
+        return pd.read_csv(path, index_col=0, parse_dates=True)
+    except Exception as e:
+        print(f'  估值檔 {code} 讀取失敗（{type(e).__name__}），視為無估值資料')
+        return None
 
 
 if __name__ == '__main__':
