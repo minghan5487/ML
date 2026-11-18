@@ -1,0 +1,44 @@
+name: 唯讀診斷
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      TZ: Asia/Taipei
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: 下載資料（與每日訓練相同環境）
+        run: python -m trend.data 2>&1 | tee download.log
+
+      - name: 下載結果統計
+        run: |
+          echo "=== 下載失敗筆數 ==="
+          grep -c "下載失敗" download.log || true
+          echo
+          echo "=== 失敗明細 ==="
+          grep "下載失敗" download.log || echo "（無失敗）"
+          echo
+          echo "=== 實際產出的檔案數 ==="
+          echo "價格檔: $(ls -1 data/prices 2>/dev/null | wc -l)"
+          echo "估值檔: $(ls -1 data/valuation 2>/dev/null | wc -l)"
+          echo
+          echo "=== 零位元組或極小的檔案 ==="
+          find data -name '*.csv' -size -3c -print || true
+
+      - name: 唯讀診斷
+        run: python -m trend.diagnose
