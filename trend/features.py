@@ -67,6 +67,9 @@ def valuation_features(code, index):
     }, index=index)
 
 
+MARKET_FFILL_LIMIT = 3
+
+
 def market_features():
     close = load(MARKET)['Close']
     return pd.DataFrame({
@@ -84,7 +87,9 @@ def build_dataset():
         df = load(f'{code}.TW')
         if df is None or len(df) < 300:
             continue
-        feats = price_features(df).join(market, how='left')
+        # 大盤資料可能比個股晚一個交易日；向前填補至多 MARKET_FFILL_LIMIT 天，
+        # 否則當日所有個股會因 mkt_* 為 NaN 而被 dropna 整批刪除（預測永遠慢一天）。
+        feats = price_features(df).join(market.reindex(df.index).ffill(limit=MARKET_FFILL_LIMIT), how='left')
         feats = feats.join(valuation_features(code, df.index))
         feats['rel_strength_20'] = feats['ret_20'] - feats['mkt_ret_20']
         feats['future_return'] = df['Close'].shift(-HORIZON) / df['Close'] - 1
