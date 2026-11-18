@@ -3,12 +3,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT / 'data' / 'prices'
 VALUATION_DIR = ROOT / 'data' / 'valuation'
+CHIP_DIR = ROOT / 'data' / 'chip'          # 三大法人買賣超
+MARGIN_DIR = ROOT / 'data' / 'margin'      # 融資融券
+REVENUE_DIR = ROOT / 'data' / 'revenue'    # 月營收
 MODEL_DIR = ROOT / 'models'
 REPORT_DIR = ROOT / 'reports'
 
 START_DATE = '2012-01-01'
 HORIZON = 20
 MARKET = '^TWII'
+
+# 月營收依規定於次月 10 日前公布；保守起見，資料期末後 45 天才視為可用，
+# 避免以「營收所屬月份」對齊而產生前視偏誤。
+REVENUE_PUBLISH_LAG_DAYS = 45
 
 STOCKS = {
     '2330': '台積電', '2317': '鴻海', '2454': '聯發科', '2308': '台達電', '2382': '廣達',
