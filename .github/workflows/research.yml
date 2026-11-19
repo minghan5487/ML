@@ -63,10 +63,10 @@ jobs:
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
-      # 兩次 run 的回測年化報酬相差 3.25 個百分點，但管線已驗證為確定性
+      # 三次 run 的回測年化報酬在 +21.2% ~ +24.5% 之間跳動，但管線已驗證為確定性
       # （同一份檔案跑兩次，特徵矩陣雜湊與 AUC 完全一致）。
       # 若上游資料會改寫歷史值，就是唯一剩下的解釋。在同一個 job 內
-      # 相隔數分鐘重新下載並比對雜湊，可直接驗證。
+      # 相隔數分鐘重新下載並比對雜湊，可直接驗證。已證實：252 檔中 50 檔改變。
       - name: 上游資料穩定性
         run: |
           {
@@ -86,7 +86,7 @@ jobs:
               echo '  足以讓前 10 名換人並改變回測報酬。'
               echo
               echo '改變的檔案（前 15 個）：'
-              diff fp1.txt fp2.txt | grep '^<' | awk '{print $2}' | head -15
+              diff fp1.txt fp2.txt | grep '^<' | awk '{print $3}' | head -15
             fi
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
