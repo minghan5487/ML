@@ -63,6 +63,34 @@ jobs:
             echo '```'
           } | tee -a "$GITHUB_STEP_SUMMARY"
 
+      # 兩次 run 的回測年化報酬相差 3.25 個百分點，但管線已驗證為確定性
+      # （同一份檔案跑兩次，特徵矩陣雜湊與 AUC 完全一致）。
+      # 若上游資料會改寫歷史值，就是唯一剩下的解釋。在同一個 job 內
+      # 相隔數分鐘重新下載並比對雜湊，可直接驗證。
+      - name: 上游資料穩定性
+        run: |
+          {
+            echo '## 上游資料穩定性'
+            echo
+            echo '```text'
+            find data -name '*.csv' | sort | xargs sha256sum > fp1.txt
+            python -c "from trend.data import update_all; update_all(force=True)" > /dev/null 2>&1
+            find data -name '*.csv' | sort | xargs sha256sum > fp2.txt
+            n=$(diff fp1.txt fp2.txt | grep -c '^<' || true)
+            echo "檔案總數: $(wc -l < fp1.txt)"
+            echo "內容改變的檔案數: $n"
+            if [ "$n" -eq 0 ]; then
+              echo '→ 兩次下載完全一致，資料改寫不是差異來源，需另尋解釋。'
+            else
+              echo '→ 上游在數分鐘內改寫了歷史值。筆數不變、內容變，'
+              echo '  足以讓前 10 名換人並改變回測報酬。'
+              echo
+              echo '改變的檔案（前 15 個）：'
+              diff fp1.txt fp2.txt | grep '^<' | awk '{print $2}' | head -15
+            fi
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: 保留報告
         if: always()
         uses: actions/upload-artifact@v4
