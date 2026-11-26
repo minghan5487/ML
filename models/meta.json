@@ -1,15 +1,15 @@
 {
   "model": "gradient_boosting",
-  "auc": 0.5549,
-  "accuracy": 0.5573,
-  "baseline": 0.5686,
-  "auc_technical_only": 0.5156,
-  "auc_no_market": 0.5353,
-  "top_quintile_return": 0.0345,
-  "avg_return": 0.0231,
-  "trained_at": "2026-11-26 03:54",
+  "auc": 0.5543,
+  "accuracy": 0.5562,
+  "baseline": 0.5683,
+  "auc_technical_only": 0.514,
+  "auc_no_market": 0.5348,
+  "top_quintile_return": 0.0341,
+  "avg_return": 0.023,
+  "trained_at": "2026-11-27 03:33",
   "horizon": 20,
-  "train_label_end": "2026-10-27",
-  "data_end": "2026-11-24",
-  "samples": 166374
+  "train_label_end": "2026-10-28",
+  "data_end": "2026-11-25",
+  "samples": 166424
 }
